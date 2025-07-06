@@ -173,12 +173,24 @@ const PDFUploadPage = () => {
       setIsUploading(false);
       setProcessingStep(1); // Move to next step
 
-      // Step 2: Process via API route with file path
-      console.log('🤖 Processing with AI...');
-      const response = await fetch('/api/process-pdf', {
+      // Step 2: Process via Express backend API route with file path
+      console.log('🤖 Processing with AI via Express backend...');
+
+      // Get Supabase session token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error(sessionError?.message || 'User session not found. Please log in again.');
+      }
+      const token = session.access_token;
+
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'; // Fallback just in case
+      console.log(`📞 Calling Express backend at: ${backendUrl}/api/process/document`);
+
+      const response = await fetch(`${backendUrl}/api/process/document`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           filePath: filePath,
@@ -189,48 +201,74 @@ const PDFUploadPage = () => {
 
       clearInterval(progressInterval);
 
-      console.log('📡 Response status:', response.status);
-      console.log('📡 Response ok:', response.ok);
+      console.log('📡 Backend Response status:', response.status);
+      console.log('📡 Backend Response ok:', response.ok);
+
+      const responseData = await response.json(); // Always try to parse JSON
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to process PDF');
+        // errorData.error from backend's ErrorResponse (message) or a default
+        console.error('❌ Backend error response:', responseData);
+        throw new Error(responseData.message || responseData.error || `Failed to process PDF (status ${response.status})`);
       }
-
-      const data = await response.json();
       
-      console.log('📦 Full API Response:', data);
-      console.log('📦 Response success:', data?.success);
+      console.log('📦 Full Backend API Response:', responseData);
+      console.log('📦 Backend Response success:', responseData?.success);
       
-      if (data?.success) {
-        // Process the results
+      if (responseData?.success) {
+        // Process the results - structure should be similar to before
         let processedResults = {};
         
         // Handle summary
-        if (data.summary) {
+        if (responseData.summary && typeof responseData.summary === 'string') { // Direct string content
           processedResults.summary = {
-            content: data.summary
+            content: responseData.summary
           };
+        } else if (responseData.summary && responseData.summary.error) {
+            console.warn('⚠️ Summary generation failed:', responseData.summary.error);
+            setError(prev => prev ? `${prev}\nSummary: ${responseData.summary.error}` : `Summary: ${responseData.summary.error}`);
         }
         
         // Handle flashcards
-        if (data.flashcards) {
-          console.log('🎴 Setting flashcard data:', data.flashcards);
-          setFlashcardData(data.flashcards);
-          processedResults.flashcards = data.flashcards;
+        if (responseData.flashcards && responseData.flashcards.cards) { // Expected object with cards array
+          console.log('🎴 Setting flashcard data:', responseData.flashcards);
+          setFlashcardData(responseData.flashcards); // Expects { title: '...', cards: [...] }
+          processedResults.flashcards = responseData.flashcards;
+        } else if (responseData.flashcards && responseData.flashcards.error) {
+            console.warn('⚠️ Flashcard generation failed:', responseData.flashcards.error);
+             setError(prev => prev ? `${prev}\nFlashcards: ${responseData.flashcards.error}` : `Flashcards: ${responseData.flashcards.error}`);
         }
         
         // Handle quiz
-        if (data.quiz) {
-          processedResults.quiz = data.quiz;
+        if (responseData.quiz && responseData.quiz.questionsData) { // Expected object with questionsData
+          processedResults.quiz = responseData.quiz; // Expects { topics: [], questionsData: [] }
+        } else if (responseData.quiz && responseData.quiz.error) {
+            console.warn('⚠️ Quiz generation failed:', responseData.quiz.error);
+            setError(prev => prev ? `${prev}\nQuiz: ${responseData.quiz.error}` : `Quiz: ${responseData.quiz.error}`);
         }
         
+        // Check if any results were actually processed successfully
+        if (Object.keys(processedResults).length === 0 && !responseData.success) {
+            throw new Error(responseData.message || 'Processing completed, but no valid data was returned.');
+        }
+
         console.log('🎯 Final results being set:', processedResults);
         setResults(processedResults);
         setProcessingStep(processingSteps.length - 1);
         
       } else {
-        throw new Error(data?.error || 'Processing failed - success was false');
+        // Even if responseData.success is false, there might be partial errors in results
+        // Log them if available
+        let errorMessages = [];
+        if (responseData.summary && responseData.summary.error) errorMessages.push(`Summary: ${responseData.summary.error}`);
+        if (responseData.flashcards && responseData.flashcards.error) errorMessages.push(`Flashcards: ${responseData.flashcards.error}`);
+        if (responseData.quiz && responseData.quiz.error) errorMessages.push(`Quiz: ${responseData.quiz.error}`);
+
+        if (errorMessages.length > 0) {
+            throw new Error(`Processing failed with issues:\n${errorMessages.join('\n')}`);
+        } else {
+            throw new Error(responseData.message || responseData.error || 'Processing failed - success flag was false or missing.');
+        }
       }
 
     } catch (error) {
