@@ -1,83 +1,50 @@
 // components/ProtectedRoute.js
-'use client'
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+'use client';
+import { useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext'; // Adjust path if necessary
 
 const ProtectedRoute = ({ children }) => {
-  const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
-  const [hasError, setHasError] = useState(false);
+  const { user, loading, verifyAuth } = useAuth();
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const pathname = usePathname(); // Get current path
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        // Add a timeout to catch network issues
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Network timeout')), 10000)
-        );
+    // If still loading auth state, don't do anything yet.
+    // The AuthProvider itself shows a loading indicator.
+    if (loading) {
+      return;
+    }
 
-        const authPromise = supabase.auth.getSession();
-        
-        const { data: { session }, error } = await Promise.race([
-          authPromise,
-          timeoutPromise
-        ]);
+    // If not loading and no user, redirect to login.
+    // Preserve the intended destination via query param.
+    if (!user) {
+      console.log('ProtectedRoute: No user found, redirecting to login.');
+      router.push(`/login?redirectTo=${pathname}`);
+    }
+    // If user is authenticated, component will render children.
+  }, [user, loading, router, pathname]);
 
-        if (error) {
-          console.error('Auth error:', error);
-          setHasError(true);
-          setAuthenticated(false);
-          router.push('/login?redirectTo=/upload');
-          return;
-        }
-
-        if (!session) {
-          // No session, redirect to login
-          setAuthenticated(false);
-          router.push('/login?redirectTo=/upload');
-          return;
-        }
-
-        // User is authenticated
-        setAuthenticated(true);
-        setHasError(false);
-      } catch (error) {
-        console.error('Error checking auth:', error);
-        setHasError(true);
-        setAuthenticated(false);
-        router.push('/login?redirectTo=/upload');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuth();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_OUT' || !session) {
-          setAuthenticated(false);
-          setHasError(false);
-          router.push('/login?redirectTo=/upload');
-        } else if (event === 'SIGNED_IN' && session) {
-          setAuthenticated(true);
-          setHasError(false);
-        }
-      }
-    );
-
-    // Cleanup subscription
-    return () => {
-      subscription?.unsubscribe();
-    };
-  }, [router, supabase.auth]);
-
-  // Show loading spinner while checking authentication
+  // If loading, AuthProvider might be showing a loading screen,
+  // or we can show one here too to prevent flash of unstyled content
+  // or content that shouldn't be visible.
+  // However, AuthContext already handles a basic loading screen.
   if (loading) {
+    // This could be a more specific loading spinner for the protected route itself
+    // For now, relying on AuthProvider's loading state.
+    return null; // Or a specific spinner
+  }
+
+  // If there's a user, render the children. Otherwise, redirection is in progress.
+  return user ? children : null;
+  // Or, if not loading and no user, can also show a "Redirecting..." message
+  // but usually router.push is fast enough.
+
+  /* Old loading and error states - AuthContext now handles general loading and initial auth check
+  const [hasError, setHasError] = useState(false); // This specific error handling might need rethinking
+                                                  // if network errors are caught by authService/AuthContext
+  // Show loading spinner while checking authentication
+  if (loading) { // This loading is from useAuth()
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center">
         <div className="text-center">

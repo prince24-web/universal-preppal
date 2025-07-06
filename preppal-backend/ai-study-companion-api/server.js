@@ -4,12 +4,14 @@ dotenv.config();
 import multer from "multer";
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser"; // Added cookie-parser
 const app = express();
 
 // Middleware
+app.use(cookieParser(process.env.COOKIE_SECRET)); // Use cookie-parser with secret
 app.use(
     cors({
-        origin: process.env.FRONTEND_URL || "http://localhost:5173",
+        origin: process.env.FRONTEND_URL || "http://localhost:5173", // This will need to be http://localhost:3000 for prep-pal
         credentials: true,
     })
 );

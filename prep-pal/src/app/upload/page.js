@@ -1,13 +1,17 @@
 'use client'
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react'; // Added useEffect
 import { Upload, FileText, Brain, BookOpen, Zap, X, Check, ArrowRight, Download, LogOut, User, AlertCircle } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+// import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'; // REMOVE
 import { useRouter } from 'next/navigation';
 import ProtectedRoute from '../components/ProtectedRoute';
 import QuizResultsSection from '../components/quiz';
 import ModernFlashcards from '../components/flashcard';
+import { useAuth } from '@/context/AuthContext'; // ADD
 
 const PDFUploadPage = () => {
+  const { user, logoutContext } = useAuth(); // ADD
+  const router = useRouter(); // Keep useRouter
+
   const [uploadedFile, setUploadedFile] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState([]);
@@ -15,28 +19,20 @@ const PDFUploadPage = () => {
   const [isUploading, setIsUploading] = useState(false); // NEW: Track upload state
   const [processingStep, setProcessingStep] = useState(0);
   const [results, setResults] = useState(null);
-  const [user, setUser] = useState(null);
+  // const [user, setUser] = useState(null); // REMOVE - useAuth provides user
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
-  const supabase = createClientComponentClient();
-  const router = useRouter();
+  // const supabase = createClientComponentClient(); // REMOVE
 
    // ADD THESE MISSING STATE VARIABLES
   const [flashcardData, setFlashcardData] = useState(null);
   const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
   
-  // Get user info on component mount
-  React.useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-    };
-    getUser();
-  }, [supabase.auth]);
+  // Get user info on component mount - REMOVED, useAuth handles this
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
+    await logoutContext(); // Use logout from AuthContext
+    // router.push('/login'); // logoutContext should handle redirection
   };
 
   const generationOptions = [

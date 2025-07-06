@@ -2,7 +2,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Footer from "./components/footer";
 import NavbarWrapper from "./components/NavbarWrapper";
-
+import { AuthProvider } from "@/context/AuthContext"; // Adjust path if necessary
 
 
 const geistSans = Geist({
@@ -66,9 +66,11 @@ export default function RootLayout({ children }) {
         <meta name="twitter:image" content="/preppal-icon.png" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <AuthProvider>
           <NavbarWrapper/>
           {children}
           <Footer />
+        </AuthProvider>
       </body>
     </html>
   );

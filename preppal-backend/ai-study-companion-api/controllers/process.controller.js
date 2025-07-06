@@ -11,6 +11,21 @@ import { extractTextFromPDF } from '../utils/pdfProcessor.js';
 // import { generateFlashcardsFromText } from './flashcards.controller.js'; // Placeholder
 import quizController from './quiz.controller.js'; // Actual quiz controller
 
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+// Initialize Gemini AI client globally within the module
+// Ensure GEMINI_API_KEY is set in your backend environment variables
+let geminiModel;
+try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    console.log("✅ Gemini AI Model initialized for process.controller");
+} catch (e) {
+    console.error("❌ Failed to initialize Gemini AI Model in process.controller:", e.message);
+    // Depending on how critical this is, you might throw error or let requests fail if model is not init
+}
+
+
 // Temporary: Define stubs for AI generation logic from summaries and flashcards controllers
 // This is because the current controllers are tightly coupled with request/response, chunking, and DB operations.
 // A refactor would be needed to expose pure text-in, data-out functions.
@@ -108,11 +123,11 @@ const processDocument = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('User not authenticated.', 401));
   }
 
-  // Initialize Gemini AI (if not already global or passed around)
-  // This should ideally be initialized once and reused.
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  // Gemini model is now initialized globally at the top of the file.
+  if (!geminiModel) {
+    // Handle case where model failed to initialize
+    return next(new ErrorResponse('AI model not available. Please contact support.', 503));
+  }
 
   let textContent;
 

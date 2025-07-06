@@ -25,21 +25,31 @@ const uploadPDF = asyncWrapper(async (req, res, next) => {
     const userId = req.user.id;
 
     if (!req.file) return next(new CreateError("No file uploaded", 400));
-    const filename = `${userId}-${Date.now()}`;
+    const filename = `${userId}-${Date.now()}.pdf`; // Ensure .pdf extension for clarity in storage
 
     const { data, error } = await supabase.storage
-        .from("pdfs")
+        .from("documents") // Changed bucket from "pdfs" to "documents"
         .upload(filename, req.file.buffer, {
             contentType: "application/pdf",
             cacheControl: "3600",
-            upsert: false,
+            upsert: false, // Consider if upsert: true might be useful in some scenarios
         });
 
-    if (error) return next(new CreateError("Failed to upload file", 500));
+    if (error) {
+        console.error("Supabase storage upload error:", error);
+        return next(new CreateError(`Failed to upload file to Supabase: ${error.message}`, 500));
+    }
 
+    // The 'path' returned by Supabase is typically what we need (e.g., 'public/filename.pdf')
+    // However, the actual path stored in data.path might not include the bucket name.
+    // The filename itself is often used as the key within the bucket.
+    // Let's ensure the returned path is the key within the bucket.
+    const supabasePath = data.path; // This should be the key like 'filename.pdf' or 'folder/filename.pdf'
+
+    // Get public URL if needed for logging, but frontend primarily needs the path for processing
     const { data: urlData } = supabase.storage
-        .from("pdfs")
-        .getPublicUrl(filename);
+        .from("documents") // Changed bucket
+        .getPublicUrl(supabasePath); // Use the path from the upload response
 
     const uploadLog = await uploadsCrud.create({
         user_id: userId,

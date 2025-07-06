@@ -1,61 +1,69 @@
-## Integration of Express Backend - YYYY-MM-DD
+## Architectural Refactor: Backend-Only Supabase Interaction - YYYY-MM-DD
 
-This update integrates the Express.js backend (`preppal-backend`) into the Next.js frontend (`prep-pal`), replacing the previous Next.js API route for document processing.
+This update implements a major architectural refactor to ensure that only the Express.js backend (`preppal-backend`) interacts directly with Supabase. The Next.js frontend (`prep-pal`) no longer contains Supabase SDKs or keys and communicates exclusively with the Express backend for all authentication, data, and storage operations.
 
 ### Key Changes:
 
-1.  **Backend API Integration:**
-    *   The frontend now calls the Express backend for PDF processing (summaries, flashcards, quizzes).
-    *   The primary Next.js API route `prep-pal/src/app/api/process-pdf/route.js` has been **removed**.
-    *   A new central processing endpoint `POST /api/process/document` was created in the Express backend.
+**1. Backend-Exclusive Supabase Interaction:**
+    *   All Supabase client-side libraries and configurations have been removed from the Next.js frontend (`prep-pal`).
+    *   The Express.js backend (`preppal-backend`) now solely manages all Supabase operations (Auth, Database, Storage) using the Supabase Admin/Service Role Key.
 
-2.  **Authentication:**
-    *   Frontend API calls to the Express backend are authenticated using Supabase JWTs. The frontend retrieves the current session token and sends it as a Bearer token in the `Authorization` header.
-    *   The Express backend's `authMiddleware.js` was confirmed to correctly validate these Supabase JWTs and fetch user details.
+**2. Authentication & Session Management:**
+    *   **Backend-Managed Sessions:** The Express backend now issues its own JWTs (JSON Web Tokens) for session management. These tokens are stored in secure, HTTP-only cookies (`prepPalSession`).
+    *   **Frontend Auth Service (`prep-pal/src/services/authService.js`):** A new service in the frontend handles all authentication-related API calls to the backend (login, register, logout, get current user, Google OAuth initiation).
+    *   **Backend Auth Controller (`preppal-backend/.../auth.controller.js`):**
+        *   Handles user registration and login by authenticating against Supabase and then issuing a backend session cookie.
+        *   Handles Google OAuth flow, ensuring the final session token is a backend-issued cookie.
+        *   Provides endpoints for logout (clearing the cookie) and fetching user data (`/api/auth/me`) based on the backend session.
+    *   **Backend Auth Middleware (`preppal-backend/.../authMiddleware.js`):**
+        *   Updated to verify the backend-issued JWT from the `prepPalSession` cookie instead of a Bearer token from the client.
+    *   **Dependencies:** Added `jsonwebtoken` and `cookie-parser` to the backend.
 
-3.  **Environment Variables:**
+**3. File Uploads:**
+    *   **Frontend (`prep-pal/src/app/upload/page.js`):**
+        *   No longer uploads files directly to Supabase Storage.
+        *   Sends the PDF file to a new backend endpoint (`POST /api/upload/pdf`).
+    *   **Backend (`preppal-backend/.../uploads.controller.js`):**
+        *   Receives the file via `multer`.
+        *   Uploads the file to Supabase Storage (into the "documents" bucket).
+        *   Returns the Supabase file path/key to the frontend.
+
+**4. PDF Processing Flow:**
+    *   **Frontend (`prep-pal/src/app/upload/page.js`):**
+        *   After receiving the Supabase file path from the backend upload endpoint, it calls the backend's main processing endpoint (`POST /api/process/document`) with this path.
+        *   Cookie-based authentication is used for this call (no explicit Authorization header).
+    *   **Backend (`preppal-backend/.../process.controller.js`):**
+        *   The core logic (downloading file from Supabase, text extraction, AI calls) remains largely the same but is now protected by the cookie-based auth middleware.
+
+**5. Frontend State Management:**
+    *   **Auth Context (`prep-pal/src/context/AuthContext.js`):** Implemented to manage global user authentication state (user object, loading status) based on data from `authService.js`.
+    *   **UI Components (`prep-pal/src/app/login/page.js`, `ProtectedRoute.js`):**
+        *   Refactored to use `AuthContext` and `authService.js` for all auth operations and state.
+        *   Removed all direct Supabase SDK usage.
+
+**6. Environment Variables:**
     *   **Frontend (`prep-pal/.env.local`):**
-        *   `NEXT_PUBLIC_BACKEND_URL`: Added to specify the URL of the Express backend (e.g., `http://localhost:3001`).
-    *   **Backend (`preppal-backend/ai-study-companion-api/.env` - required):**
-        *   `SUPABASE_URL`: Needs to be set with your Supabase project URL.
-        *   `SUPABASE_SERVICE_ROLE_KEY`: Needs to be set with your Supabase service role key.
-        *   `GEMINI_API_KEY`: Needs to be set for AI-powered quiz generation (and summary/flashcards as implemented in the new process controller).
-        *   `OPENROUTER_API_KEY`: (If applicable) Required if original summary/flashcard AI logic via OpenRouter is used/retained.
-        *   `FRONTEND_URL`: Required for CORS configuration, should be the URL of the Next.js frontend (e.g., `http://localhost:3000`).
+        *   Removed `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+        *   `NEXT_PUBLIC_BACKEND_URL` remains crucial.
+    *   **Backend (`preppal-backend/.env`):**
+        *   Added `JWT_SECRET` (for backend JWTs) and `COOKIE_SECRET` (for `cookie-parser`).
+        *   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `FRONTEND_URL`, `PORT` remain essential.
+        *   `BACKEND_API_URL` (or similar like `PUBLIC_BACKEND_URL`) may be needed for constructing OAuth redirect URIs accurately, especially if the backend is behind a proxy in production.
 
-4.  **Backend (`preppal-backend/ai-study-companion-api`):**
-    *   **New Dependencies:**
-        *   `axios`: For general HTTP requests (if needed).
-        *   `@supabase/supabase-js`: For Supabase interactions (token verification, file downloads).
-        *   `pdf-parse`: For extracting text from PDF files.
-    *   **New Files & Routes:**
-        *   `utils/pdfProcessor.js`: Utility for extracting text from PDF buffers.
-        *   `controllers/quiz.controller.js` & `routes/quiz.route.js`: Handles AI-powered quiz generation from text. Endpoint: `POST /api/quiz/generate`.
-        *   `controllers/process.controller.js` & `routes/process.route.js`: Main endpoint for document processing. Endpoint: `POST /api/process/document`. This controller:
-            *   Downloads the PDF from Supabase storage (path provided by frontend).
-            *   Extracts text using `pdfProcessor.js`.
-            *   Calls AI generation logic for summaries, flashcards (using Gemini, similar to original Next.js API), and quizzes (via `quiz.controller.js`).
-            *   Returns the generated content directly to the frontend.
-    *   **Modifications:**
-        *   `middlewares/authMiddleware.js`: Verified to correctly use Supabase for JWT validation.
-        *   `config/supabaseClient.js`: Verified to correctly initialize Supabase client using environment variables.
-        *   `routes/index.route.js`: Updated to include the new `/api/quiz` and `/api/process` routes.
-        *   `server.js`: CORS configuration relies on `FRONTEND_URL`. Default Express port is 3000, ensure no conflict if Next.js also runs on 3000. The backend default is 3000, but `prep-pal`'s `NEXT_PUBLIC_BACKEND_URL` was set to `http://localhost:3001`, implying the backend should run on 3001.
+**7. CORS and Cookie Settings:**
+    *   Backend CORS configured to accept credentials from `FRONTEND_URL`.
+    *   Cookies are set with `HttpOnly`, `Secure` (in production), and `SameSite=Lax`.
 
-5.  **Frontend (`prep-pal`):**
-    *   **Modifications:**
-        *   `src/app/upload/page.js`:
-            *   The `handleGenerate` function now calls `POST ${process.env.NEXT_PUBLIC_BACKEND_URL}/api/process/document`.
-            *   Supabase session token is retrieved and sent in the `Authorization` header.
-            *   Response handling is updated to match the structure from the Express backend, including display of partial errors.
+### Required User Actions & Testing:
 
-### Testing Considerations:
-*   Ensure all required environment variables are set in both frontend and backend `.env` files.
-*   Verify user authentication flow (Supabase login on frontend, token propagation to backend).
-*   Test PDF upload and processing for all options (summary, flashcards, quiz).
-*   Check error handling for API failures, AI generation issues, and authentication problems.
-*   Confirm CORS is correctly configured if frontend and backend are on different origins/ports. The backend Express server runs on port 3000 by default in its `server.js`, while the frontend's `NEXT_PUBLIC_BACKEND_URL` is set to `http://localhost:3001`. This implies the Express server should be started on port 3001 to match.
-
-### Notes on AI Generation:
-*   The new `/api/process/document` endpoint in the backend uses Google Gemini for summaries, flashcards, and quizzes. This aligns the AI provider with what was used in the original Next.js `process-pdf` API route.
-*   The existing Express backend routes for summaries (`/api/summarize/*`) and flashcards (`/api/flashcards/*`) use OpenRouter. These routes are still available but are not directly called by the main PDF processing flow from the upload page anymore.
+*   **Set Environment Variables:** Critically important to set all required environment variables in both frontend (`.env.local`) and backend (`.env`) files, especially secrets and URLs.
+*   **Thorough Testing (as outlined previously):**
+    *   Registration (Email/Password, Google OAuth).
+    *   Login & Logout.
+    *   Session persistence and `ProtectedRoute` behavior.
+    *   File upload flow (Frontend -> Backend -> Supabase Storage).
+    *   Complete PDF processing flow (triggering backend processing, AI calls, displaying results).
+    *   Comprehensive error handling for all scenarios.
+    *   Behavior in different browser environments and across varying network conditions.
+    *   CORS and cookie handling, especially in deployed/production-like environments.
+*   **Review Local User DB Sync:** The synchronization logic between Supabase Auth and the local `users` table in the backend (via `usersCrud`) needs careful review and implementation if it's a strict requirement for other backend functionalities. Placeholders and comments exist in `auth.controller.js`.
